@@ -20,11 +20,12 @@ from functools import wraps
 from typing import Any, Callable, Iterator
 
 from contextlib2 import contextmanager
-from flask import request
-from werkzeug.wrappers.etag import ETagResponseMixin
-
+from flask import abort, request
+from werkzeug.wrappers import ETagResponseMixin
 from superset import app, cache
+from superset.exceptions import SupersetSecurityException
 from superset.stats_logger import BaseStatsLogger
+from superset.utils import core as utils
 from superset.utils.dates import now_as_float
 
 # If a user sets `max_age` to 0, for long the browser should cache the
@@ -116,9 +117,32 @@ def etag_cache(max_age: int, check_perms: Callable[..., Any]) -> Callable[..., A
         if cache:
             wrapper.uncached = f  # type: ignore
             wrapper.cache_timeout = max_age  # type: ignore
-            wrapper.make_cache_key = cache._memoize_make_cache_key(  # type: ignore # pylint: disable=protected-access
+            wrapper.make_cache_key = cache._memoize_make_cache_key(
+                # type: ignore # pylint: disable=protected-access
                 make_name=None, timeout=max_age
             )
+
+        return wrapper
+
+    return decorator
+
+
+def on_security_exception(ex):
+    abort(403, description=utils.error_msg_from_exception(ex))
+
+
+def check_permissions(check_perms: Callable[..., Any],
+                      on_error: Callable[..., Any] = on_security_exception) -> Callable[..., Any]:
+
+    def decorator(f: Callable[..., Any]) -> Callable[..., Any]:
+        @wraps(f)
+        def wrapper(*args: Any, **kwargs: Any) -> Callable:
+            # check if the user can access the resource
+            try:
+                check_perms(*args, **kwargs)
+            except SupersetSecurityException as ex:
+                on_error(ex)
+            return f(*args, **kwargs)
 
         return wrapper
 
