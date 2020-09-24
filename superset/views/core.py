@@ -79,7 +79,7 @@ from superset.exceptions import (
 )
 from superset.jinja_context import get_template_processor
 from superset.models.core import Database
-from superset.models.dashboard import Dashboard
+from superset.models.dashboard import Dashboard, get_dashboard
 from superset.models.datasource_access_request import DatasourceAccessRequest
 from superset.models.slice import Slice
 from superset.models.sql_lab import Query, TabState
@@ -1595,17 +1595,9 @@ class Superset(BaseSupersetView):  # pylint: disable=too-many-public-methods
         self, dashboard_id_or_slug: str
     ) -> FlaskResponse:
         """Server side rendering for a dashboard"""
-        session = db.session()
-        qry = session.query(Dashboard)
-        if dashboard_id_or_slug.isdigit():
-            qry = qry.filter_by(id=int(dashboard_id_or_slug))
-        else:
-            qry = qry.filter_by(slug=dashboard_id_or_slug)
-
-        dash = qry.one_or_none()
+        dash = get_dashboard(dashboard_id_or_slug)
         if not dash:
             abort(404)
-
         datasources = defaultdict(list)
         for slc in dash.slices:
             datasource = slc.datasource

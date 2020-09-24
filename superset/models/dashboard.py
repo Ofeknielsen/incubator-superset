@@ -505,3 +505,14 @@ if is_feature_enabled("TAGGING_SYSTEM"):
 if is_feature_enabled("THUMBNAILS_SQLA_LISTENERS"):
     sqla.event.listen(Dashboard, "after_insert", event_after_dashboard_changed)
     sqla.event.listen(Dashboard, "after_update", event_after_dashboard_changed)
+
+
+def get_dashboard(id_or_slug: str) -> Dashboard:
+    session = db.session()
+    qry = session.query(Dashboard)
+    if id_or_slug.isdigit():
+        qry = qry.filter_by(id=int(id_or_slug))
+    else:
+        qry = qry.filter_by(slug=id_or_slug)
+
+    return qry.one_or_none()
