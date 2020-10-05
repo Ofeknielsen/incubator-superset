@@ -16,14 +16,31 @@
 # under the License.
 import logging
 import re
-from typing import List, Optional, Set, Tuple
-
+from typing import Any, Callable,  List, Optional, Set, Tuple, TYPE_CHECKING, Union
+from flask import g
 from superset import security_manager
 from superset.constants import Security as SecurityConsts
+import superset.models.dashboard as dashboard_module
+from superset.errors import ErrorLevel, SupersetError, SupersetErrorType
+from superset.exceptions import SupersetSecurityException
+from superset import conf as config
+
+
+if TYPE_CHECKING:
+    from superset.models.dashboard import Dashboard
 
 logger = logging.getLogger(__name__)
 
 dashboard_level_access_enabled = None
+is_user_admin = None
+
+
+def get_is_user_admin_func() -> Callable:
+    global is_user_admin
+    if is_user_admin is None:
+        from superset.views.base import is_user_admin as to_return
+        is_user_admin = to_return
+    return is_user_admin
 
 
 def is_dashboard_level_access_enabled() -> bool:  # pylint:disable=invalid-name
@@ -80,6 +97,8 @@ class DashboardSecurityMixin:
             )
             security_manager.del_view_menu(view_menu_name)
 
+    def is_owner(self):
+        return not g.user.is_anonymous and g.user in self.owners
 
 ID_REGEX_PATTERN = r"\(id:(?P<id>\d+)\)$"
 id_finder = re.compile(ID_REGEX_PATTERN)
@@ -106,3 +125,58 @@ class DashboardSecurityManager:
         if matched:
             return matched.group("id")
         raise ValueError(f"the view name {view_name} does not contains an id segment")
+
+    @staticmethod
+    def can_access_by_id(_self: Any, dashboard_id_or_slug: Union[str, int]):
+        is_admin = get_is_user_admin_func()()
+        if not is_admin:
+            dashboard = DashboardSecurityManager.get_dashboard(str(dashboard_id_or_slug))
+            return DashboardSecurityManager.can_access_by_dashboard(dashboard, False)
+
+    @classmethod
+    def can_access_by_dashboard(cls, dashboard: "Dashboard", is_admin: Optional[bool] = None) -> None:
+        is_admin = get_is_user_admin_func()() if is_admin is None else is_admin
+        if not (is_admin or dashboard.is_owner() or (dashboard.published and cls.__can_access_by_dashboard(dashboard))):
+            raise SupersetSecurityException(cls.get_access_error_object(dashboard))
+
+    @classmethod
+    def __can_access_by_dashboard(cls, dashboard: "Dashboard") -> bool:
+        return cls.can_access_all() or \
+               security_manager.can_access(SecurityConsts.Dashboard.ACCESS_PERMISSION_NAME, dashboard.view_name)
+
+    @classmethod
+    def get_access_error_object(
+        cls,  # pylint: disable=invalid-name
+        dashboard: "Dashboard"
+    ) -> SupersetError:
+        """
+        Return the error object for the denied Superset datasource.
+
+        :param dashboard: The denied Superset datasource
+        :returns: The error object
+        """
+        return SupersetError(
+            error_type=SupersetErrorType.DASHBOARD_SECURITY_ACCESS_ERROR,
+            message=cls.get_access_error_msg(dashboard),
+            level=ErrorLevel.ERROR,
+            extra={
+                "link": config.get("PERMISSION_INSTRUCTIONS_LINK"),
+                "dashboard": dashboard.view_name,
+            },
+        )
+
+    @staticmethod
+    def get_access_error_msg(dashboard: "Dashboard") -> str:
+        """
+        Return the error message for the denied Superset dashboard.
+
+        :param dashboard: The denied Superset dashboard
+        :returns: The error message
+        """
+
+        return f"""This endpoint requires `{SecurityConsts.Dashboard.ACCESS_PERMISSION_NAME} on {dashboard.view_name}` or `{SecurityConsts.AllDashboard.ACCESS_PERMISSION_NAME} on {SecurityConsts.AllDashboard.VIEW_NAME}` permission"""
+
+    @classmethod
+    def get_dashboard(cls, dashboard_id_or_slug: str):
+        return dashboard_module.get_dashboard(dashboard_id_or_slug)
+
