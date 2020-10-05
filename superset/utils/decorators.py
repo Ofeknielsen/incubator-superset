@@ -127,22 +127,25 @@ def etag_cache(max_age: int, check_perms: Callable[..., Any]) -> Callable[..., A
     return decorator
 
 
-def on_security_exception(ex):
-    abort(403, description=utils.error_msg_from_exception(ex))
+def on_security_exception(self, ex):
+    return self.response(403, **{"message": utils.error_msg_from_exception(ex)})
 
 
+# noinspection PyPackageRequirements
 def check_permissions(check_perms: Callable[..., Any],
                       on_error: Callable[..., Any] = on_security_exception) -> Callable[..., Any]:
 
     def decorator(f: Callable[..., Any]) -> Callable[..., Any]:
         @wraps(f)
-        def wrapper(*args: Any, **kwargs: Any) -> Callable:
+        def wrapper(self, *args: Any, **kwargs: Any) -> Callable:
             # check if the user can access the resource
             try:
-                check_perms(*args, **kwargs)
+                check_perms(self, *args, **kwargs)
             except SupersetSecurityException as ex:
-                on_error(ex)
-            return f(*args, **kwargs)
+                return on_error(self, ex)
+            except Exception as e:
+                raise e
+            return f(self, *args, **kwargs)
 
         return wrapper
 
