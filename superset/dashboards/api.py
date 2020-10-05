@@ -18,7 +18,10 @@ import logging
 from typing import Any, Dict
 
 from flask import g, make_response, redirect, request, Response, url_for
-from flask_appbuilder.api import expose, protect, rison, safe
+from flask_appbuilder.api import expose, protect, rison, safe, permission_name, \
+    get_item_schema, \
+    merge_response_func, ModelRestApi, API_LABEL_COLUMNS_RIS_KEY, \
+    API_SHOW_COLUMNS_RIS_KEY, API_DESCRIPTION_COLUMNS_RIS_KEY, API_SHOW_TITLE_RIS_KEY
 from flask_appbuilder.models.sqla.interface import SQLAInterface
 from flask_babel import ngettext
 from marshmallow import ValidationError
@@ -60,6 +63,9 @@ from superset.views.base_api import (
     statsd_metrics,
 )
 from superset.views.filters import FilterRelatedOwners
+
+from superset.utils.decorators import check_permissions
+from superset.dashboards.security import DashboardSecurityManager
 
 logger = logging.getLogger(__name__)
 
@@ -539,3 +545,18 @@ class DashboardRestApi(BaseSupersetModelRestApi):
         return Response(
             FileWrapper(screenshot), mimetype="image/png", direct_passthrough=True
         )
+
+    @expose("/<int:pk>", methods=["GET"])
+    @protect()
+    @permission_name("get")
+    @rison(get_item_schema)
+    @check_permissions(lambda a, pk, *args, **kwargs: DashboardSecurityManager.can_access_by_id(a, pk))
+    @safe
+    @merge_response_func(ModelRestApi.merge_show_label_columns,
+                         API_LABEL_COLUMNS_RIS_KEY)
+    @merge_response_func(ModelRestApi.merge_show_columns, API_SHOW_COLUMNS_RIS_KEY)
+    @merge_response_func(ModelRestApi.merge_description_columns,
+                         API_DESCRIPTION_COLUMNS_RIS_KEY)
+    @merge_response_func(ModelRestApi.merge_show_title, API_SHOW_TITLE_RIS_KEY)
+    def get(self, pk, **kwargs):
+        return super(DashboardRestApi, self).get(pk, **kwargs)

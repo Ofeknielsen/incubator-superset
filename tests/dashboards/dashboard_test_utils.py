@@ -15,33 +15,34 @@
 # specific language governing permissions and limitations
 # under the License.
 import logging
-from typing import List, Optional
-
-from superset import appbuilder, is_feature_enabled, security_manager
+import random
+from sqlalchemy import func
+import string
+from superset import appbuilder, db, is_feature_enabled, security_manager
+from superset.connectors.sqla.models import SqlaTable
 from superset.constants import Security
-from superset.models.dashboard import Dashboard, dashboard_slices, dashboard_user
+from superset.models.dashboard import Dashboard
 from superset.models.slice import Slice
+from tests.dashboards.consts import DEFAULT_DASHBOARD_SLUG_TO_TEST
+from typing import Any, Dict, List, Optional, Tuple
 
 logger = logging.getLogger(__name__)
 
-
-def assert_permission_was_created(case, dashboard):
-    view_menu = security_manager.find_view_menu(dashboard.view_name)
-    case.assertIsNotNone(view_menu)
-    case.assertEqual(len(security_manager.find_permissions_view_menu(view_menu)), 1)
+session = appbuilder.get_session
 
 
-def assert_permission_kept_and_changed(case, updated_dashboard, excepted_view_id):
-    view_menu_after_title_changed = security_manager.find_view_menu(
-        updated_dashboard.view_name
-    )
-    case.assertIsNotNone(view_menu_after_title_changed)
-    case.assertEqual(view_menu_after_title_changed.id, excepted_view_id)
-
-
-def assert_permissions_were_deleted(case, deleted_dashboard):
-    view_menu = security_manager.find_view_menu(deleted_dashboard.view_name)
-    case.assertIsNone(view_menu)
+def get_mock_positions(dashboard: Dashboard) -> Dict[str, Any]:
+    positions = {"DASHBOARD_VERSION_KEY": "v2"}
+    for i, slc in enumerate(dashboard.slices):
+        id_ = "DASHBOARD_CHART_TYPE-{}".format(i)
+        position_data = {
+            "type": "CHART",
+            "id": id_,
+            "children": [],
+            "meta": {"width": 4, "height": 50, "chartId": slc.id},
+        }
+        positions[id_] = position_data
+    return positions
 
 
 DASHBOARD_PERMISSION_ROLE = "dashboard_permission_role"
@@ -49,7 +50,7 @@ DASHBOARD_PERMISSION_ROLE = "dashboard_permission_role"
 number_of_roles = 3
 
 
-def assign_dashboard_permissions_to_multiple_roles(dashboard):
+def assign_dashboard_permissions_to_multiple_roles(dashboard: Dashboard) -> None:
     permission_name, view_name = dashboard.permission_view_pairs[0]
     pv = security_manager.find_permission_view_menu(permission_name, view_name)
 
@@ -63,86 +64,102 @@ def assign_dashboard_permissions_to_multiple_roles(dashboard):
         logger.warning("permission view not found")
 
 
-def clean_dashboard_matching_roles():
+def clean_dashboard_matching_roles() -> None:
     for i in range(number_of_roles):
         security_manager.del_role(dashboard_permission_role_pattern(i))
 
 
-def dashboard_permission_role_pattern(i):
+def dashboard_permission_role_pattern(i: int) -> str:
     return "dashboard_permission_role" + str(i)
 
 
-def is_dashboard_level_access_enabled():
+def is_dashboard_level_access_enabled() -> bool:
     return is_feature_enabled(Security.DASHBOARD_LEVEL_ACCESS_FEATURE)
 
 
-inserted_dashboards_ids = []
+def get_user(owner):
+    return session.query(security_manager.user_model).get(owner)
 
 
-def insert_dashboard(
-    dashboard_title: str,
-    slug: Optional[str],
-    owners: List[int],
-    slices: Optional[List[Slice]] = None,
-    position_json: str = "",
-    css: str = "",
-    json_metadata: str = "",
-    published: bool = False,
-) -> Dashboard:
-    obj_owners = list()
-    slices = slices or []
-    for owner in owners:
-        user = appbuilder.get_session.query(security_manager.user_model).get(owner)
-        obj_owners.append(user)
-    dashboard = Dashboard(
-        dashboard_title=dashboard_title,
-        slug=slug,
-        owners=obj_owners,
-        position_json=position_json,
-        css=css,
-        json_metadata=json_metadata,
-        slices=slices,
-        published=published,
-    )
-    appbuilder.get_session.add(dashboard)
-    appbuilder.get_session.commit()
+def build_save_dash_parts(dashboard_slug: Optional[str] = None,
+                          dashboard_to_edit: Optional[Dashboard] = None) -> Tuple[Dashboard, Dict, Dict]:
+    if not dashboard_to_edit:
+        dashboard_slug = dashboard_slug if dashboard_slug else DEFAULT_DASHBOARD_SLUG_TO_TEST
+        dashboard_to_edit = get_dashboard_by_slug(dashboard_slug)
 
-    appbuilder.get_session.refresh(dashboard)
-
-    inserted_dashboards_ids.append(dashboard.id)
-
-    if is_dashboard_level_access_enabled():
-        dashboard.add_permissions_views()
-    return dashboard
+    data_before_change = {
+        "positions": dashboard_to_edit.position,
+        "dashboard_title": dashboard_to_edit.dashboard_title,
+    }
+    data_after_change = {
+        "css": "",
+        "expanded_slices": {},
+        "positions": get_mock_positions(dashboard_to_edit),
+        "dashboard_title": dashboard_to_edit.dashboard_title,
+    }
+    return dashboard_to_edit, data_before_change, data_after_change
 
 
-def delete_all_inserted_dashboards():
-    try:
-        session = appbuilder.get_session
-        for dashboard_id in inserted_dashboards_ids:
-            try:
-                logger.info(f"deleting dashboard{dashboard_id}")
-                dashboard = session.query(Dashboard).filter_by(id=dashboard_id).first()
-                if dashboard:
-                    if is_dashboard_level_access_enabled():
-                        dashboard.del_permissions_views()
-                    session.execute(
-                        dashboard_user.delete().where(
-                            dashboard_user.c.dashboard_id == dashboard.id
-                        )
-                    )
-                    session.execute(
-                        dashboard_slices.delete().where(
-                            dashboard_slices.c.dashboard_id == dashboard.id
-                        )
-                    )
-                    session.delete(dashboard)
-            except Exception as ex:
-                logger.error(f"failed to delete {dashboard_id}", exc_info=True)
-                raise ex
-        if len(inserted_dashboards_ids) > 0:
-            session.commit()
-            inserted_dashboards_ids.clear()
-    except Exception as ex2:
-        logger.error("delete_all_inserted_dashboards failed", exc_info=True)
-        raise ex2
+def get_all_dashboards() -> List[Dashboard]:
+    return db.session.query(Dashboard).all()
+
+
+def get_all_dashboards_classified_by_publish_value() -> Dict[str, List[Dashboard]]:
+    dashboards = get_all_dashboards()
+    solution = {"True": [], "False": []}
+
+    for dashboard in dashboards:
+        solution[str(dashboard.published)].append(dashboard)
+
+    return solution
+
+
+def get_dashboard_by_slug(dashboard_slug: str) -> Dashboard:
+    return db.session.query(Dashboard) \
+        .filter_by(slug=dashboard_slug) \
+        .first()
+
+
+def get_dashboard_by_id(dashboard_id: int) -> Dashboard:
+    return db.session.query(Dashboard) \
+        .filter_by(id=dashboard_id) \
+        .first()
+
+
+def get_slice_by_name(slice_name: str) -> Slice:
+    return db.session.query(Slice).filter_by(slice_name=slice_name).first()
+
+
+def get_sql_table_by_name(table_name: str):
+    return db.session.query(SqlaTable).filter_by(table_name=table_name).one()
+
+
+def count_dashboards() -> int:
+    return db.session.query(func.count(Dashboard.id)).first()[0]
+
+
+def get_max_dashboard_id() -> int:
+    return db.session.query(func.max(Dashboard.id)).scalar()
+
+
+def random_title():
+    return f"title{random_str()}"
+
+
+def random_username():
+    return f"alpha{random_str()}"
+
+
+def random_slug():
+    return f"slug{random_str()}"
+
+
+def get_random_string(length):
+    letters = string.ascii_lowercase
+    result_str = "".join(random.choice(letters) for i in range(length))
+    print("Random string of length", length, "is:", result_str)
+    return result_str
+
+
+def random_str():
+    return get_random_string(8)

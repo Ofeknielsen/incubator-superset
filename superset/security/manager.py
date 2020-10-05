@@ -172,6 +172,7 @@ class SupersetSecurityManager(  # pylint: disable=too-many-public-methods
         "schema_access",
         "datasource_access",
         "metric_access",
+        SecurityConsts.Dashboard.ACCESS_PERMISSION_NAME
     }
 
     ACCESSIBLE_PERMS = {"can_userinfo"}
@@ -183,6 +184,7 @@ class SupersetSecurityManager(  # pylint: disable=too-many-public-methods
         "all_datasource_access",
         "all_database_access",
         "all_query_access",
+        SecurityConsts.Dashboard.ACCESS_PERMISSION_NAME
     )
 
     def get_schema_perm(  # pylint: disable=no-self-use

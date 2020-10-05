@@ -69,7 +69,7 @@ class Security:  # pylint: disable=too-few-public-methods
 
     class AllDashboard:
         VIEW_NAME = "all_dashboards"
-        ACCESS_PERMISSION_NAME = "can_access_dashboard"
+        ACCESS_PERMISSION_NAME = "can_access_all"
         EDIT_PERMISSION_NAME = "can_edit"
 
     class Dashboard:

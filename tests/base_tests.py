@@ -315,36 +315,30 @@ class SupersetTestCase(TestCase):
         )
 
     def grant_access_to_all_dashboards(
-        self, is_dashboard_level_access_enabled=True, role_name="Public"
+        self, role_name="Public"
     ):
-        self.grant_access_to_dashboard(
-            None, is_dashboard_level_access_enabled, role_name
-        )
+        self.grant_access_to_dashboard(None, role_name)
 
     def revoke_access_to_all_dashboards(
-        self, is_dashboard_level_access_enabled=True, role_name="Public"
+        self, role_name="Public"
     ):
-        self.revoke_access_to_dashboard(
-            None, is_dashboard_level_access_enabled, role_name
-        )
+        self.revoke_access_to_dashboard(None, role_name)
 
     def grant_access_to_dashboard(
-        self, dashboard, is_dashboard_level_access_enabled=True, role_name="Public"
+        self, dashboard, role_name="Public"
     ):
-        if is_dashboard_level_access_enabled:
-            role = security_manager.find_role(role_name)
-            pvs = self.get_dashboards_access_permission_views(dashboard)
-            for pv in pvs:
-                security_manager.add_permission_role(role, pv)
+        role = security_manager.find_role(role_name)
+        pvs = self.get_dashboards_access_permission_views(dashboard)
+        for pv in pvs:
+            security_manager.add_permission_role(role, pv)
 
     def revoke_access_to_dashboard(
-        self, dashboard, is_dashboard_level_access_enabled=True, role_name="Public"
+        self, dashboard, role_name="Public"
     ):
-        if is_dashboard_level_access_enabled:
-            role = security_manager.find_role(role_name)
-            pvs = self.get_dashboards_access_permission_views(dashboard)
-            for pv in pvs:
-                security_manager.del_permission_role(role, pv)
+        role = security_manager.find_role(role_name)
+        pvs = self.get_dashboards_access_permission_views(dashboard)
+        for pv in pvs:
+            security_manager.del_permission_role(role, pv)
 
     def revoke_public_access_to_table(self, table):
         public_role = security_manager.find_role("Public")

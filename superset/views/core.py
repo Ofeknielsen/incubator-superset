@@ -68,7 +68,7 @@ from superset.connectors.sqla.models import (
     TableColumn,
 )
 from superset.dashboards.dao import DashboardDAO
-from superset.dashboards.security import is_dashboard_level_access_enabled
+from superset.dashboards.security import is_dashboard_level_access_enabled, DashboardSecurityManager
 from superset.databases.filters import DatabaseFilter
 from superset.exceptions import (
     CertificateException,
@@ -93,7 +93,7 @@ from superset.sql_validators import get_validator_by_name
 from superset.typing import FlaskResponse
 from superset.utils import core as utils, dashboard_import_export
 from superset.utils.dates import now_as_float
-from superset.utils.decorators import etag_cache
+from superset.utils.decorators import etag_cache, check_permissions
 from superset.views.base import (
     api,
     BaseSupersetView,
@@ -1591,6 +1591,7 @@ class Superset(BaseSupersetView):  # pylint: disable=too-many-public-methods
 
     @has_access
     @expose("/dashboard/<dashboard_id_or_slug>/")
+    @check_permissions(DashboardSecurityManager.can_access_by_id, on_error=lambda self, ex: Response(utils.error_msg_from_exception(ex), status=403))
     def dashboard(  # pylint: disable=too-many-locals
         self, dashboard_id_or_slug: str
     ) -> FlaskResponse:
